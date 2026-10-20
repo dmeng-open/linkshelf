@@ -1,4 +1,3 @@
-import { safeNext } from "@/lib/session";
 import { login } from "./actions";
 
 type SearchParams = Promise<{ next?: string | string[]; error?: string | string[] }>;
@@ -10,7 +9,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
     <main>
       <h1>Sign in</h1>
       <form action={login}>
-        <input type="hidden" name="next" value={safeNext(next)} />
+        <input type="hidden" name="next" value={typeof next === "string" ? next : "/"} />
         <label>
           Password <input type="password" name="password" required autoFocus />
         </label>

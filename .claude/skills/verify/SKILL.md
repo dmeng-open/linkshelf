@@ -74,7 +74,7 @@ Expect `200` with the cookie. Without it, `curl -sI "http://localhost:300$N/"` r
 
 ## Drive
 
-One command signs in, loads a URL in headless Chromium, saves a full-page screenshot, and prints one JSON line of facts. The two arguments after `node -` are the URL and the screenshot path. Rows carry `data-testid="link-row"`. To drive a signed-out browser, delete the four sign-in lines.
+One command loads a URL in headless Chromium, signs in through the form if the app redirected to `/login`, saves a full-page screenshot, and prints one JSON line of facts. The two arguments after `node -` are the URL and the screenshot path. Rows carry `data-testid="link-row"`. `gatedAt` is the `/login` URL the gate sent the browser to, or `null` when the page loaded without sign-in, as on a base build that predates the gate.
 
 ```bash
 node - "http://localhost:300$N/" "$OUT/home.png" <<'JS'
@@ -84,17 +84,21 @@ const { chromium } = require("@playwright/test");
   const [url, shot] = process.argv.slice(2);
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-  await page.goto(new URL("/login", url).href);
-  await page.getByLabel("Password").fill(process.env.LINKSHELF_PASSWORD);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await page.waitForURL((u) => u.pathname !== "/login");
-  const res = await page.goto(url);
+  let res = await page.goto(url);
+  const gatedAt = new URL(page.url()).pathname === "/login" ? page.url() : null;
+  if (gatedAt) {
+    await page.getByLabel("Password").fill(process.env.LINKSHELF_PASSWORD);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await page.waitForURL((u) => u.pathname !== "/login");
+    res = await page.reload();
+  }
   const rows = page.getByTestId("link-row");
   const count = await rows.count();
   await page.screenshot({ path: shot, fullPage: true });
   console.log(JSON.stringify({
     status: res.status(),
     url: page.url(),
+    gatedAt,
     noLinksYet: (await page.getByText("No links yet").count()) > 0,
     rowCount: count,
     firstRow: count ? (await rows.first().innerText()).trim() : null,
@@ -113,6 +117,7 @@ To act on the page (click, type, submit) add steps between `page.goto` and the s
 
 Expected facts:
 
+- Signed out at head: `gatedAt` ends with `/login?next=%2F`, and `url` is back on `/` after sign-in.
 - Empty table: `noLinksYet: true`, `rowCount: 0`, `firstRow: null`.
 - After `--links 25`: `noLinksYet: false`, `rowCount: 20`, `firstRow: "Link 25"`.
 

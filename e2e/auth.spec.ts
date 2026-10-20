@@ -19,10 +19,10 @@ test("a wrong password shows Wrong password", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
 });
 
-test("the right password lands on /", async ({ page }) => {
-  await page.goto("/");
+test("the right password lands on the page that redirected", async ({ page }) => {
+  await page.goto("/?x=1");
   await signIn(page, process.env.LINKSHELF_PASSWORD!);
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/?x=1");
   await expect(page.getByRole("heading", { name: "Linkshelf" })).toBeVisible();
 });
 

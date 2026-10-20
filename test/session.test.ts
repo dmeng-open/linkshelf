@@ -10,10 +10,11 @@ describe("session tokens", () => {
     expect(await verifySessionToken(await createSessionToken(now), now)).toBe(true);
   });
 
-  it("rejects a token after it expires", async () => {
+  it("rejects a token after 30 days", async () => {
     const token = await createSessionToken(now);
-    expect(await verifySessionToken(token, later(SESSION_TTL_MS - 1))).toBe(true);
-    expect(await verifySessionToken(token, later(SESSION_TTL_MS))).toBe(false);
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+    expect(await verifySessionToken(token, later(thirtyDays - 1))).toBe(true);
+    expect(await verifySessionToken(token, later(thirtyDays))).toBe(false);
   });
 
   it("rejects a token signed under another secret", async () => {
@@ -36,7 +37,7 @@ describe("session tokens", () => {
 
 describe("checkPassword", () => {
   it("accepts the right password", async () => {
-    expect(await checkPassword(process.env.LINKSHELF_PASSWORD!)).toBe(true);
+    expect(await checkPassword("test-password")).toBe(true);
   });
 
   it("rejects a wrong password", async () => {
