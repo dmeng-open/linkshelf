@@ -24,6 +24,8 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/linkshelf
       PGPASSWORD: postgres
+      LINKSHELF_PASSWORD: ci-password
+      SESSION_SECRET: ci-secret-0123456789abcdef0123456789
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
