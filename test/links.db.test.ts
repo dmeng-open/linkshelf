@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { db } from "../db/client";
 import { listLinks } from "../db/links";
 import { links } from "../db/schema";
+import "./db";
 
 const at = (minutes: number) => new Date(Date.UTC(2025, 0, 1, 0, minutes));
 
