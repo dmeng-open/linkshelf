@@ -36,7 +36,10 @@ test("sign out returns to /login and / redirects again", async ({ page }) => {
 });
 
 test("a login with next=//evil.example lands on /", async ({ page }) => {
-  await page.goto("/login?next=//evil.example");
-  await signIn(page, process.env.LINKSHELF_PASSWORD!);
-  await expect(page).toHaveURL("/");
+  for (const next of ["//evil.example", "/\\evil.example", "/\t/evil.example", "/\t\\evil.example", "/\n/evil.example"]) {
+    await page.context().clearCookies();
+    await page.goto(`/login?${new URLSearchParams({ next })}`);
+    await signIn(page, process.env.LINKSHELF_PASSWORD!);
+    await expect(page, `next=${JSON.stringify(next)}`).toHaveURL("/");
+  }
 });

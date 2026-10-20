@@ -29,12 +29,9 @@ export async function verifySessionToken(token: string | undefined, now: Date): 
   const match = token?.match(/^(v1\.(\d{1,15}))\.([A-Za-z0-9_-]{43})$/);
   if (!match) return false;
   const [, payload, expiresAt, signature] = match;
-  const valid = await crypto.subtle.verify(
-    "HMAC",
-    await hmacKey,
-    Buffer.from(signature, "base64url"),
-    encoder.encode(payload),
-  );
+  const signatureBytes = Buffer.from(signature, "base64url");
+  if (signatureBytes.toString("base64url") !== signature) return false;
+  const valid = await crypto.subtle.verify("HMAC", await hmacKey, signatureBytes, encoder.encode(payload));
   return valid && Number(expiresAt) > now.getTime();
 }
 
@@ -57,8 +54,10 @@ export async function requireSession(): Promise<void> {
   if (!(await hasSession())) redirect("/login");
 }
 
+const SAME_ORIGIN = "http://linkshelf.invalid";
+
 export function safeNext(next: unknown): string {
-  return typeof next === "string" && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\")
-    ? next
-    : "/";
+  if (typeof next !== "string" || !next.startsWith("/")) return "/";
+  const url = new URL(next, SAME_ORIGIN);
+  return url.origin === SAME_ORIGIN ? url.pathname + url.search + url.hash : "/";
 }

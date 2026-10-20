@@ -22,10 +22,15 @@ describe("session tokens", () => {
     expect(await verifySessionToken(`${payload}.${signature}`, now)).toBe(false);
   });
 
-  it("rejects a token whose expiresAt was edited", async () => {
-    const [version, expiresAt, signature] = (await createSessionToken(now)).split(".");
-    const edited = `${version}.${Number(expiresAt) + SESSION_TTL_MS}.${signature}`;
-    expect(await verifySessionToken(edited, now)).toBe(false);
+  it("rejects a token whose expiresAt or signature was edited", async () => {
+    const token = await createSessionToken(now);
+    const [version, expiresAt, signature] = token.split(".");
+    expect(await verifySessionToken(`${version}.${Number(expiresAt) + SESSION_TTL_MS}.${signature}`, now)).toBe(false);
+
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const lastCharEdits = [...alphabet].filter((c) => c !== token.at(-1)).map((c) => token.slice(0, -1) + c);
+    const verified = await Promise.all(lastCharEdits.map((edited) => verifySessionToken(edited, now)));
+    expect(verified.filter(Boolean)).toHaveLength(0);
   });
 });
 
