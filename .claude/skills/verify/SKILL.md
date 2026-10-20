@@ -61,9 +61,20 @@ psql "$DATABASE_URL" -c 'select url, title, tags, read_at, created_at from links
 
 An empty shelf needs no seed. Truncate with `psql "$DATABASE_URL" -c 'truncate table links'`.
 
+## Sign in
+
+Every page except `/login` and `/api/health` redirects to `/login?next=<path>` until the browser holds a valid `ls_session` cookie. The browser signs in through the real form with `$LINKSHELF_PASSWORD`, as the Drive recipe below does. For `curl` and the perf probe, mint a cookie for the current `SESSION_SECRET` instead:
+
+```bash
+export COOKIE="ls_session=$(npx tsx scripts/mint-session.ts)"
+curl -s -o /dev/null -w '%{http_code}\n' -b "$COOKIE" "http://localhost:300$N/"
+```
+
+Expect `200` with the cookie. Without it, `curl -sI "http://localhost:300$N/"` returns `307` with `location: /login?next=%2F`.
+
 ## Drive
 
-One command loads a URL in headless Chromium, saves a full-page screenshot, and prints one JSON line of facts. The two arguments after `node -` are the URL and the screenshot path. Rows carry `data-testid="link-row"`.
+One command loads a URL in headless Chromium, signs in through the form if the app redirected to `/login`, saves a full-page screenshot, and prints one JSON line of facts. The two arguments after `node -` are the URL and the screenshot path. Rows carry `data-testid="link-row"`. `gatedAt` is the `/login` URL the gate sent the browser to, or `null` when the page loaded without sign-in, as on a base build that predates the gate.
 
 ```bash
 node - "http://localhost:300$N/" "$OUT/home.png" <<'JS'
@@ -73,13 +84,21 @@ const { chromium } = require("@playwright/test");
   const [url, shot] = process.argv.slice(2);
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-  const res = await page.goto(url);
+  let res = await page.goto(url);
+  const gatedAt = new URL(page.url()).pathname === "/login" ? page.url() : null;
+  if (gatedAt) {
+    await page.getByLabel("Password").fill(process.env.LINKSHELF_PASSWORD);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await page.waitForURL((u) => u.pathname !== "/login");
+    res = await page.reload();
+  }
   const rows = page.getByTestId("link-row");
   const count = await rows.count();
   await page.screenshot({ path: shot, fullPage: true });
   console.log(JSON.stringify({
     status: res.status(),
     url: page.url(),
+    gatedAt,
     noLinksYet: (await page.getByText("No links yet").count()) > 0,
     rowCount: count,
     firstRow: count ? (await rows.first().innerText()).trim() : null,
@@ -98,6 +117,7 @@ To act on the page (click, type, submit) add steps between `page.goto` and the s
 
 Expected facts:
 
+- Signed out at head: `gatedAt` ends with `/login?next=%2F`, and `url` is back on `/` after sign-in.
 - Empty table: `noLinksYet: true`, `rowCount: 0`, `firstRow: null`.
 - After `--links 25`: `noLinksYet: false`, `rowCount: 20`, `firstRow: "Link 25"`.
 
@@ -128,7 +148,7 @@ For time to first byte against a seeded lane:
 
 ```bash
 npx tsx scripts/seed.ts --links 10000 --tagged 1000 --tag perf
-node scripts/perf-probe.mjs --a "http://localhost:300$N" --path / --n 100
+node scripts/perf-probe.mjs --a "http://localhost:300$N" --path / --n 100 --cookie "ls_session=$(npx tsx scripts/mint-session.ts)"
 ```
 
-It prints one JSON line `{"a":{"p50":..,"p95":..}}` in milliseconds. Add `--b <baseUrl>` to alternate against a second server, and `--cookie <value>` for an authenticated path. A non-2xx response aborts the probe.
+It prints one JSON line `{"a":{"p50":..,"p95":..}}` in milliseconds. Add `--b <baseUrl>` to alternate against a second server. Without `--cookie` the gate answers `307`, and any non-2xx response aborts the probe.
