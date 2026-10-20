@@ -36,7 +36,8 @@ async function ttfb(base) {
 }
 
 for (let i = 0; i < WARMUP + n; i++) {
-  for (const [side, base] of Object.entries(sides)) {
+  const order = i % 2 ? Object.entries(sides).reverse() : Object.entries(sides);
+  for (const [side, base] of order) {
     const elapsed = await ttfb(base);
     if (i >= WARMUP) samples[side].push(elapsed);
   }
