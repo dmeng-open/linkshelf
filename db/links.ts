@@ -1,5 +1,5 @@
 import { desc, sql } from "drizzle-orm";
-import { isLinkId, type LinkId, type LinkInput } from "../lib/link";
+import type { LinkId, LinkInput } from "../lib/link";
 import { db } from "./client";
 import { links, type Link } from "./schema";
 
@@ -16,6 +16,6 @@ export async function upsertLink(input: LinkInput): Promise<{ id: LinkId; outcom
       set: { title: input.title, tags: input.tags, updatedAt: sql`now()` },
     })
     .returning({ id: links.id, inserted: sql<boolean>`(xmax = 0)` });
-  if (!row || !isLinkId(row.id)) throw new Error("upsert returned no valid id");
-  return { id: row.id, outcome: row.inserted ? "created" : "updated" };
+  if (!row) throw new Error("upsert returned no row");
+  return { id: row.id as LinkId, outcome: row.inserted ? "created" : "updated" };
 }

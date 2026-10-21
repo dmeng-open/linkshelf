@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { upsertLink } from "@/db/links";
-import { parseLinkInput, readLinkFields, type LinkErrors, type LinkFields } from "@/lib/link";
+import { parseLinkInput, type LinkErrors, type LinkFields } from "@/lib/link";
 import { requireSession } from "@/lib/session";
 
 export type SaveState =
@@ -13,7 +13,7 @@ export type SaveState =
 export async function saveLink(_prev: SaveState, formData: FormData): Promise<SaveState> {
   await requireSession();
   const parsed = parseLinkInput(formData);
-  if (!parsed.ok) return { status: "invalid", errors: parsed.errors, values: readLinkFields(formData) };
+  if (!parsed.ok) return { status: "invalid", errors: parsed.errors, values: parsed.values };
 
   const { outcome } = await upsertLink(parsed.value);
   revalidatePath("/");

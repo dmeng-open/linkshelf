@@ -17,11 +17,7 @@ export function SaveForm() {
   const invalid = state.status === "invalid" ? state : null;
 
   return (
-    <form
-      key={invalid ? JSON.stringify(invalid.values) : state.status}
-      action={action}
-      noValidate
-    >
+    <form action={action} noValidate>
       {FIELDS.map(({ name, label }) => {
         const error = invalid?.errors[name];
         return (

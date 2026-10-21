@@ -88,4 +88,14 @@ describe("upsertLink", () => {
     expect(row.createdAt).toEqual(at(1));
     expect(row.updatedAt.getTime()).toBeGreaterThan(at(1).getTime());
   });
+
+  it("saves a url of 2048 characters", async () => {
+    const origin = "https://example.com/";
+    const url = origin + "a".repeat(2048 - origin.length);
+
+    await upsertLink(input("Long", "", url));
+
+    const [row] = await db.select().from(links);
+    expect(row.url).toBe(url);
+  });
 });

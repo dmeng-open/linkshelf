@@ -71,3 +71,27 @@ test("an empty title shows the title error and adds no row", async ({ page }) =>
   await expect(page.getByText("No links yet")).toBeVisible();
   expect(await db.select().from(links)).toHaveLength(0);
 });
+
+test("the form keeps typed values after an invalid save and clears after each success", async ({ page }) => {
+  await page.goto("/");
+  const url = page.getByLabel("URL", { exact: true });
+  const title = page.getByLabel("Title", { exact: true });
+  const tags = page.getByLabel("Tags", { exact: true });
+
+  await save(page, { url: "https://example.com/a", title: " ", tags: "news" });
+  await expect(page.getByText("Enter a title")).toBeVisible();
+  await expect(url).toHaveValue("https://example.com/a");
+  await expect(tags).toHaveValue("news");
+
+  await save(page, { url: "https://example.com/a", title: "First", tags: "news" });
+  await expect(page.getByRole("status")).toHaveText("Saved First");
+  await expect(url).toHaveValue("");
+  await expect(title).toHaveValue("");
+  await expect(tags).toHaveValue("");
+
+  await save(page, { url: "https://example.com/b", title: "Second", tags: "rust" });
+  await expect(page.getByRole("status")).toHaveText("Saved Second");
+  await expect(url).toHaveValue("");
+  await expect(title).toHaveValue("");
+  await expect(tags).toHaveValue("");
+});

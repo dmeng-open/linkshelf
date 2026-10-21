@@ -9,11 +9,17 @@ export type LinkErrors = Partial<Record<LinkField, string>>;
 export type LinkFields = Record<LinkField, string>;
 
 const TAG_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MAX_TAGS = 10;
 const MAX_TITLE_LENGTH = 300;
+const MAX_URL_LENGTH = 2048;
+const MAX_TAGS_INPUT_LENGTH = 1000;
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
-function canonicalHref(raw: string): string | null {
+function isTag(value: string): value is Tag {
+  return TAG_PATTERN.test(value);
+}
+
+export function normalizeUrl(raw: string): NormalizedUrl | null {
   let url: URL;
   try {
     url = new URL(raw.trim());
@@ -21,28 +27,15 @@ function canonicalHref(raw: string): string | null {
     return null;
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  if (url.username !== "" || url.password !== "") return null;
   url.hash = "";
-  return url.href;
-}
-
-function isNormalizedUrl(value: string): value is NormalizedUrl {
-  return canonicalHref(value) === value;
-}
-
-function isTag(value: string): value is Tag {
-  return TAG_PATTERN.test(value);
-}
-
-export function isLinkId(value: string): value is LinkId {
-  return UUID_PATTERN.test(value);
-}
-
-export function normalizeUrl(raw: string): NormalizedUrl | null {
-  const href = canonicalHref(raw);
-  return href !== null && isNormalizedUrl(href) ? href : null;
+  return url.href as NormalizedUrl;
 }
 
 export function parseTags(raw: string): { ok: true; value: Tag[] } | { ok: false; error: string } {
+  if (raw.length > MAX_TAGS_INPUT_LENGTH) {
+    return { ok: false, error: `Use at most ${MAX_TAGS_INPUT_LENGTH} characters of tags` };
+  }
   const names = [
     ...new Set(
       raw
@@ -66,7 +59,7 @@ export function parseTags(raw: string): { ok: true; value: Tag[] } | { ok: false
   return { ok: true, value: tags };
 }
 
-export function readLinkFields(formData: FormData): LinkFields {
+function readLinkFields(formData: FormData): LinkFields {
   const text = (name: LinkField) => {
     const value = formData.get(name);
     return typeof value === "string" ? value : "";
@@ -76,19 +69,23 @@ export function readLinkFields(formData: FormData): LinkFields {
 
 export function parseLinkInput(
   formData: FormData,
-): { ok: true; value: LinkInput } | { ok: false; errors: LinkErrors } {
-  const fields = readLinkFields(formData);
-  const url = normalizeUrl(fields.url);
-  const title = fields.title.trim();
-  const tags = parseTags(fields.tags);
+): { ok: true; value: LinkInput } | { ok: false; errors: LinkErrors; values: LinkFields } {
+  const values = readLinkFields(formData);
+  const url = normalizeUrl(values.url);
+  const title = values.title.trim();
+  const tags = parseTags(values.tags);
   const titleLength = [...title].length;
 
   const errors: LinkErrors = {};
   if (url === null) errors.url = "Enter a valid http or https URL";
+  else if (url.length > MAX_URL_LENGTH) errors.url = `Use a URL of at most ${MAX_URL_LENGTH} characters`;
   if (titleLength === 0) errors.title = "Enter a title";
   else if (titleLength > MAX_TITLE_LENGTH) errors.title = `Use a title of at most ${MAX_TITLE_LENGTH} characters`;
+  else if (CONTROL_CHARACTERS.test(title)) errors.title = "Remove control characters from the title";
   if (!tags.ok) errors.tags = tags.error;
 
-  if (url === null || errors.title !== undefined || !tags.ok) return { ok: false, errors };
+  if (url === null || errors.url !== undefined || errors.title !== undefined || !tags.ok) {
+    return { ok: false, errors, values };
+  }
   return { ok: true, value: { url, title, tags: tags.value } };
 }
