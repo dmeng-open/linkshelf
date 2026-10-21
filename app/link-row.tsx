@@ -72,7 +72,7 @@ export function LinkRow({ link }: { link: Link }) {
 
   return (
     <li data-testid="link-row" data-read={shownRead} style={shownRead ? { color: "#888" } : undefined}>
-      <a href={link.url} style={shownRead ? { color: "inherit" } : undefined}>
+      <a href={link.url} target="_blank" rel="noopener noreferrer" style={shownRead ? { color: "inherit" } : undefined}>
         {link.title}
       </a>{" "}
       <span>{new URL(link.url).host}</span>
