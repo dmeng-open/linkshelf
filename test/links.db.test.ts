@@ -1,7 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../db/client";
-import { countUnread, deleteLink, listLinks as listPage, restoreLink, setRead, updateLink, upsertLink } from "../db/links";
+import { countUnread, deleteLink, importLinks, listLinks as listPage, restoreLink, setRead, updateLink, upsertLink } from "../db/links";
 import { links } from "../db/schema";
 import { parseLinkInput, type LinkId, type LinkInput, type Tag } from "../lib/link";
 import type { ListQuery } from "../lib/list-query";
@@ -338,5 +338,27 @@ describe("search", () => {
   it("combines with tag and state", async () => {
     expect(await search("e", { tag: "rust" as Tag })).toEqual(["Plain 100 off", "The Rust Book"]);
     expect(await search("example", { state: "unread" })).toEqual(["Plain 100 off", "The Rust Book"]);
+  });
+});
+
+describe("importLinks", () => {
+  const input = (k: number, title = `Imported ${k}`): LinkInput => ({
+    url: `https://example.com/import/${k}` as LinkInput["url"],
+    title,
+    tags: [],
+  });
+
+  it("skips URLs that already exist and keeps their titles", async () => {
+    await db.insert(links).values({ url: "https://example.com/import/1", title: "Mine" });
+
+    expect(await importLinks([input(1, "Theirs"), input(2)])).toEqual({ imported: 1, skipped: 1 });
+
+    const rows = await db.select().from(links).orderBy(links.url);
+    expect(rows.map((row) => row.title)).toEqual(["Mine", "Imported 2"]);
+  });
+
+  it("imports 1,200 inputs across three batches", async () => {
+    expect(await importLinks(Array.from({ length: 1200 }, (_, k) => input(k)))).toEqual({ imported: 1200, skipped: 0 });
+    expect(await db.$count(links)).toBe(1200);
   });
 });
