@@ -2,13 +2,15 @@ import Link from "next/link";
 import { listLinks } from "@/db/links";
 import { parseListQuery, type SearchParams } from "@/lib/list-query";
 import { LinkRow } from "./link-row";
+import { Pager } from "./pager";
 import { SaveForm } from "./save-form";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const { tag } = parseListQuery(await searchParams);
-  const links = await listLinks({ tag });
+  const query = parseListQuery(await searchParams);
+  const { tag } = query;
+  const { links, total } = await listLinks(query);
 
   return (
     <main>
@@ -19,15 +21,18 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
           Tagged #{tag} <Link href="/">Clear filter</Link>
         </p>
       )}
-      {links.length === 0 ? (
+      {total === 0 ? (
         <p>{tag === null ? "No links yet" : `No links tagged #${tag}`}</p>
       ) : (
-        <ul>
-          {links.map((link) => (
-            <LinkRow key={link.id} link={link} />
-          ))}
-        </ul>
+        links.length > 0 && (
+          <ul>
+            {links.map((link) => (
+              <LinkRow key={link.id} link={link} />
+            ))}
+          </ul>
+        )
       )}
+      <Pager {...query} total={total} />
     </main>
   );
 }
