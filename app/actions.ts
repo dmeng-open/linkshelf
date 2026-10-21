@@ -1,11 +1,12 @@
 "use server";
 
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { deleteLink, restoreLink, setRead, updateLink, upsertLink } from "@/db/links";
+import { deleteLink, restoreLink, setRead, updateLink, upsertLink, type DeletedLink } from "@/db/links";
+import { env } from "@/lib/env";
 import { parseLinkInput, type LinkErrors, type LinkFields, type LinkId } from "@/lib/link";
 import { requireSession, safeNext } from "@/lib/session";
-import type { Link } from "@/db/schema";
 
 export type SaveState =
   | { status: "idle" }
@@ -56,34 +57,40 @@ export async function editLink(_prev: EditState, formData: FormData): Promise<Ed
   return found ? { status: "saved" } : { status: "missing" };
 }
 
-export async function removeLink(id: string): Promise<Link | null> {
-  await requireSession();
-  const parsed = linkId.safeParse(id);
-  return parsed.success ? deleteLink(parsed.data) : null;
+const UNDO_TTL_MS = 10 * 60 * 1000;
+
+function undoSignature(payload: string): Buffer {
+  return createHmac("sha256", env.SESSION_SECRET).update(`undo:${payload}`).digest();
 }
 
-const deletedLink = z.object({
-  id: z.uuid(),
-  url: z.string(),
-  title: z.string(),
-  tags: z.array(z.string()),
-  readAt: z.coerce.date().nullable(),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
-});
-
-export async function undoRemove(snapshot: unknown, path: string): Promise<boolean> {
+export async function removeLink(id: string): Promise<string | null> {
   await requireSession();
-  const row = deletedLink.safeParse(snapshot);
-  if (!row.success) return false;
-  const fields = new FormData();
-  fields.set("url", row.data.url);
-  fields.set("title", row.data.title);
-  fields.set("tags", row.data.tags.join(","));
-  const parsed = parseLinkInput(fields);
-  if (!parsed.ok) return false;
+  const parsed = linkId.safeParse(id);
+  const row = parsed.success ? await deleteLink(parsed.data) : null;
+  if (row === null) return null;
+  const payload = Buffer.from(JSON.stringify({ row, deletedAt: Date.now() })).toString("base64url");
+  return `${payload}.${undoSignature(payload).toString("base64url")}`;
+}
 
-  const restored = await restoreLink({ ...row.data, ...parsed.value, id: row.data.id as LinkId });
+function readUndoToken(token: unknown): DeletedLink | null {
+  if (typeof token !== "string") return null;
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return null;
+  const given = Buffer.from(signature, "base64url");
+  const expected = undoSignature(payload);
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+  const { row, deletedAt } = JSON.parse(Buffer.from(payload, "base64url").toString()) as {
+    row: DeletedLink;
+    deletedAt: number;
+  };
+  return Date.now() - deletedAt <= UNDO_TTL_MS ? row : null;
+}
+
+export async function undoRemove(token: string, path: string): Promise<boolean> {
+  await requireSession();
+  const row = readUndoToken(token);
+  if (row === null) return false;
+  const restored = await restoreLink(row);
   revalidateFrom(path);
   return restored;
 }

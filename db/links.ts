@@ -1,4 +1,4 @@
-import { and, arrayContains, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, type AnyColumn, arrayContains, desc, eq, isNull, sql } from "drizzle-orm";
 import type { LinkId, LinkInput, Tag } from "../lib/link";
 import { PAGE_SIZE, type ListQuery } from "../lib/list-query";
 import { db } from "./client";
@@ -56,12 +56,41 @@ export async function updateLink(id: LinkId, { title, tags }: Pick<LinkInput, "t
   return rows.length > 0;
 }
 
-export async function deleteLink(id: LinkId): Promise<Link | null> {
-  const [row] = await db.delete(links).where(eq(links.id, id)).returning();
+export type DeletedLink = Omit<Link, "readAt" | "createdAt" | "updatedAt"> & {
+  readAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const exactTime = <T extends string | null>(column: AnyColumn) =>
+  sql<T>`to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
+export async function deleteLink(id: LinkId): Promise<DeletedLink | null> {
+  const [row] = await db
+    .delete(links)
+    .where(eq(links.id, id))
+    .returning({
+      id: links.id,
+      url: links.url,
+      title: links.title,
+      tags: links.tags,
+      readAt: exactTime<string | null>(links.readAt),
+      createdAt: exactTime<string>(links.createdAt),
+      updatedAt: exactTime<string>(links.updatedAt),
+    });
   return row ?? null;
 }
 
-export async function restoreLink(row: Link): Promise<boolean> {
-  const restored = await db.insert(links).values(row).onConflictDoNothing().returning({ id: links.id });
+export async function restoreLink(row: DeletedLink): Promise<boolean> {
+  const restored = await db
+    .insert(links)
+    .values({
+      ...row,
+      readAt: row.readAt === null ? null : sql`${row.readAt}::timestamptz`,
+      createdAt: sql`${row.createdAt}::timestamptz`,
+      updatedAt: sql`${row.updatedAt}::timestamptz`,
+    })
+    .onConflictDoNothing()
+    .returning({ id: links.id });
   return restored.length > 0;
 }

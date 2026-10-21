@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../db/client";
 import { countUnread, deleteLink, listLinks as listPage, restoreLink, setRead, updateLink, upsertLink } from "../db/links";
@@ -249,15 +249,17 @@ describe("updateLink, deleteLink, and restoreLink", () => {
     expect(await updateLink("00000000-0000-4000-8000-0000000000ff" as LinkId, { title: "X", tags: [] })).toBe(false);
   });
 
-  it("deleteLink then restoreLink gives back an identical row", async () => {
+  it("deleteLink then restoreLink gives back an identical row, to the microsecond", async () => {
     const id = await seedRead();
-    const [before] = await db.select().from(links);
+    await db.update(links).set({ readAt: sql`now()`, createdAt: sql`now() - interval '1.234567 seconds'` });
+    const exact = () => db.execute(sql`select id, url, title, tags, read_at::text, created_at::text, updated_at::text from links`);
+    const before = await exact();
 
     const deleted = await deleteLink(id);
     expect(await db.select().from(links)).toEqual([]);
     expect(await restoreLink(deleted!)).toBe(true);
 
-    expect(await db.select().from(links)).toEqual([before]);
+    expect(await exact()).toEqual(before);
   });
 
   it("restoreLink returns false when the url was saved again in between", async () => {

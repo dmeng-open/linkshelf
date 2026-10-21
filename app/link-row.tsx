@@ -20,6 +20,7 @@ export function LinkRow({ link }: { link: Link }) {
   const path = search ? `${pathname}?${search}` : pathname;
   const [mode, setMode] = useState<"view" | "edit" | "deleted" | "already-gone" | "not-restored">("view");
   const [busy, startTransition] = useTransition();
+  const [undoToken, setUndoToken] = useState<string | null>(null);
   const closeEditor = useCallback(() => setMode("view"), []);
 
   async function toggle(formData: FormData) {
@@ -29,13 +30,15 @@ export function LinkRow({ link }: { link: Link }) {
 
   function remove() {
     startTransition(async () => {
-      setMode((await removeLink(link.id)) ? "deleted" : "already-gone");
+      const token = await removeLink(link.id);
+      setUndoToken(token);
+      setMode(token ? "deleted" : "already-gone");
     });
   }
 
   function undo() {
     startTransition(async () => {
-      setMode((await undoRemove(link, path)) ? "view" : "not-restored");
+      setMode(undoToken !== null && (await undoRemove(undoToken, path)) ? "view" : "not-restored");
     });
   }
 
@@ -52,7 +55,7 @@ export function LinkRow({ link }: { link: Link }) {
         ) : mode === "already-gone" ? (
           `${link.title} was already deleted.`
         ) : (
-          `${link.title} could not be restored because its URL was saved again.`
+          `${link.title} could not be restored.`
         )}
       </li>
     );
