@@ -1,7 +1,9 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { db } from "../db/client";
-import { listLinks } from "../db/links";
+import { listLinks, upsertLink } from "../db/links";
 import { links } from "../db/schema";
+import { parseLinkInput, type LinkInput } from "../lib/link";
 import "./db";
 
 const at = (minutes: number) => new Date(Date.UTC(2025, 0, 1, 0, minutes));
@@ -35,5 +37,65 @@ describe("listLinks", () => {
     ]);
 
     expect((await listLinks()).map((row) => row.title)).toEqual(["C", "B", "A"]);
+  });
+});
+
+describe("upsertLink", () => {
+  function input(title: string, tags = "", url = "https://example.com/a"): LinkInput {
+    const data = new FormData();
+    data.set("url", url);
+    data.set("title", title);
+    data.set("tags", tags);
+    const parsed = parseLinkInput(data);
+    if (!parsed.ok) throw new Error(`invalid test input: ${JSON.stringify(parsed.errors)}`);
+    return parsed.value;
+  }
+
+  it("leaves one row when one url is saved twice and reports the second as updated", async () => {
+    const first = await upsertLink(input("First", "news"));
+    const second = await upsertLink(input("Renamed", "web, rust"));
+
+    expect(first.outcome).toBe("created");
+    expect(second).toEqual({ id: first.id, outcome: "updated" });
+    const rows = await db.select().from(links);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ url: "https://example.com/a", title: "Renamed", tags: ["web", "rust"] });
+  });
+
+  it("keeps read_at set before an update", async () => {
+    const { id } = await upsertLink(input("First"));
+    const readAt = at(5);
+    await db.update(links).set({ readAt }).where(eq(links.id, id));
+
+    await upsertLink(input("Renamed"));
+
+    const [row] = await db.select().from(links);
+    expect(row.readAt).toEqual(readAt);
+    expect(row.title).toBe("Renamed");
+  });
+
+  it("keeps created_at on an update and moves updated_at", async () => {
+    await db.insert(links).values({
+      url: "https://example.com/a",
+      title: "Old",
+      createdAt: at(1),
+      updatedAt: at(1),
+    });
+
+    await upsertLink(input("Renamed"));
+
+    const [row] = await db.select().from(links);
+    expect(row.createdAt).toEqual(at(1));
+    expect(row.updatedAt.getTime()).toBeGreaterThan(at(1).getTime());
+  });
+
+  it("saves a url of 2048 characters", async () => {
+    const origin = "https://example.com/";
+    const url = origin + "a".repeat(2048 - origin.length);
+
+    await upsertLink(input("Long", "", url));
+
+    const [row] = await db.select().from(links);
+    expect(row.url).toBe(url);
   });
 });
