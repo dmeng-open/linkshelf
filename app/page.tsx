@@ -26,6 +26,7 @@ export default async function Home() {
                   ))}
                 </ul>
               )}
+              {" "}
               <time dateTime={link.createdAt.toISOString()}>{link.createdAt.toISOString().slice(0, 10)}</time>
             </li>
           ))}
