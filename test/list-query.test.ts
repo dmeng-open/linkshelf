@@ -50,3 +50,21 @@ describe("listHref", () => {
     expect(listHref(query)).toBe(href);
   });
 });
+
+describe("parseListQuery q", () => {
+  it.each<[string, SearchParams, string | null]>([
+    ["surrounding and inner whitespace", { q: "  Rust   Book " }, "Rust Book"],
+    ["an empty value", { q: "" }, null],
+    ["only spaces", { q: "   " }, null],
+    ["a 300-character value", { q: "a".repeat(300) }, "a".repeat(100)],
+    ["no q", {}, null],
+  ])("handles %s", (_, searchParams, q) => {
+    expect(parseListQuery(searchParams).q).toBe(q);
+  });
+
+  it("listHref keeps q", () => {
+    expect(listHref({ tag: "rust" as Tag, state: "unread", q: "rust book", page: 2 })).toBe(
+      "/?q=rust+book&tag=rust&state=unread&page=2",
+    );
+  });
+});
