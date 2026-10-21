@@ -4,6 +4,8 @@ import NextLink from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useOptimistic, useState, useTransition } from "react";
 import type { Link } from "@/db/schema";
+import type { Tag } from "@/lib/link";
+import { listHref } from "@/lib/list-query";
 import { removeLink, setLinkRead, undoRemove } from "./actions";
 import { EditLink } from "./edit-link";
 
@@ -11,7 +13,9 @@ export function LinkRow({ link }: { link: Link }) {
   const read = link.readAt !== null;
   const [shownRead, setShownRead] = useOptimistic(read);
   const pathname = usePathname();
-  const search = useSearchParams().toString();
+  const searchParams = useSearchParams();
+  const search = searchParams.toString();
+  const state = searchParams.get("state") === "unread" ? "unread" : "all";
   const pending = shownRead !== read;
   const path = search ? `${pathname}?${search}` : pathname;
   const [mode, setMode] = useState<"view" | "edit" | "deleted" | "already-gone" | "not-restored">("view");
@@ -72,7 +76,7 @@ export function LinkRow({ link }: { link: Link }) {
         <ul>
           {link.tags.map((tag) => (
             <li key={tag} data-testid="tag">
-              <NextLink href={`/?tag=${tag}`}>{tag}</NextLink>
+              <NextLink href={listHref({ tag: tag as Tag, state, page: null })}>{tag}</NextLink>
             </li>
           ))}
         </ul>
