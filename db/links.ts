@@ -1,15 +1,22 @@
 import { arrayContains, desc, eq, sql } from "drizzle-orm";
-import type { LinkId, LinkInput, Tag } from "../lib/link";
+import type { LinkId, LinkInput } from "../lib/link";
+import { PAGE_SIZE, type ListQuery } from "../lib/list-query";
 import { db } from "./client";
 import { links, type Link } from "./schema";
 
-export function listLinks({ tag }: { tag: Tag | null }): Promise<Link[]> {
-  return db
-    .select()
-    .from(links)
-    .where(tag === null ? undefined : arrayContains(links.tags, [tag]))
-    .orderBy(desc(links.createdAt), desc(links.id))
-    .limit(20);
+export async function listLinks({ tag, page }: ListQuery): Promise<{ links: Link[]; total: number }> {
+  const filter = tag === null ? undefined : arrayContains(links.tags, [tag]);
+  const [rows, total] = await Promise.all([
+    db
+      .select()
+      .from(links)
+      .where(filter)
+      .orderBy(desc(links.createdAt), desc(links.id))
+      .limit(PAGE_SIZE)
+      .offset((page - 1) * PAGE_SIZE),
+    db.$count(links, filter),
+  ]);
+  return { links: rows, total };
 }
 
 export async function upsertLink(input: LinkInput): Promise<{ id: LinkId; outcome: "created" | "updated" }> {
