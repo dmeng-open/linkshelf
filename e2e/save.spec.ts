@@ -95,3 +95,18 @@ test("the form keeps typed values after an invalid save and clears after each su
   await expect(title).toHaveValue("");
   await expect(tags).toHaveValue("");
 });
+
+test("a save after the session cookie is gone adds no row", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("URL", { exact: true }).fill("https://example.com/a");
+  await page.getByLabel("Title", { exact: true }).fill("First");
+
+  await page.context().clearCookies();
+  const response = page.waitForResponse((res) => res.request().method() === "POST");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  expect((await response).status()).toBe(307);
+
+  expect(await db.select().from(links)).toHaveLength(0);
+  await page.goto("/");
+  await expect(page).toHaveURL("/login?next=%2F");
+});
