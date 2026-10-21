@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
-import { eq, like } from "drizzle-orm";
+import { eq, inArray, isNull, like } from "drizzle-orm";
 import { db, sql } from "../db/client";
-import { upsertLink } from "../db/links";
+import { setRead, upsertLink } from "../db/links";
 import { links } from "../db/schema";
-import { normalizeUrl, type LinkInput } from "../lib/link";
+import { normalizeUrl, type LinkId, type LinkInput } from "../lib/link";
 
 const WARMUP = 5;
 
@@ -16,8 +16,9 @@ const { values } = parseArgs({
 });
 
 const n = values.n && /^\d+$/.test(values.n) ? Number(values.n) : NaN;
-if (values.op !== "upsert" || !Number.isInteger(n) || n < 1) {
-  throw new Error("usage: perf-db.ts --op upsert --n <count>");
+const op = values.op;
+if ((op !== "upsert" && op !== "set-read") || !Number.isInteger(n) || n < 1) {
+  throw new Error("usage: perf-db.ts --op upsert|set-read --n <count>");
 }
 
 function link(url: string, title: string): LinkInput {
@@ -29,7 +30,7 @@ function link(url: string, title: string): LinkInput {
 const percentile = (sorted: number[], p: number) => sorted[Math.ceil(p * sorted.length) - 1];
 const round = (ms: number) => Math.round(ms * 100) / 100;
 
-async function main() {
+async function timeUpsert() {
   const runId = randomUUID();
   const insertedPrefix = `https://example.com/perf-db/${runId}/`;
   const seededUrl = (k: number) => `https://example.com/links/${k}`;
@@ -71,6 +72,43 @@ async function main() {
     }),
   );
 }
+
+async function timeSetRead() {
+  const total = WARMUP + n;
+  const unread = await db.select({ id: links.id }).from(links).where(isNull(links.readAt)).limit(total);
+  if (unread.length < total) throw new Error(`seed the table first: need ${total} unread links, found ${unread.length}`);
+  const ids = unread.map((row) => row.id as LinkId);
+
+  const timings: number[] = [];
+  let matched = 0;
+  try {
+    for (let i = 0; i < total; i++) {
+      const start = performance.now();
+      const found = await setRead(ids[i], i % 2 === 0);
+      const elapsed = performance.now() - start;
+      if (i >= WARMUP) {
+        timings.push(elapsed);
+        if (found) matched++;
+      }
+    }
+  } finally {
+    await db.update(links).set({ readAt: null }).where(inArray(links.id, ids));
+    await sql.end();
+  }
+
+  const sorted = timings.sort((a, b) => a - b);
+  console.log(
+    JSON.stringify({
+      op: "set-read",
+      n,
+      matched,
+      p50: round(percentile(sorted, 0.5)),
+      p95: round(percentile(sorted, 0.95)),
+    }),
+  );
+}
+
+const main = op === "upsert" ? timeUpsert : timeSetRead;
 
 main().catch((err) => {
   console.error(err);
