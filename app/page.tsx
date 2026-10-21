@@ -22,6 +22,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
   return (
     <main>
       <h1>Linkshelf</h1>
+      <nav aria-label="Shelf">
+        <Link href="/import">Import</Link> <a href="/export">Export</a>
+      </nav>
       <SaveForm />
       <SearchForm tag={tag} state={state} q={q} />
       <nav aria-label="Read state">
