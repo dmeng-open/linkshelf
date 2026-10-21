@@ -1,4 +1,4 @@
-import { desc, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import type { LinkId, LinkInput } from "../lib/link";
 import { db } from "./client";
 import { links, type Link } from "./schema";
@@ -18,4 +18,13 @@ export async function upsertLink(input: LinkInput): Promise<{ id: LinkId; outcom
     .returning({ id: links.id, inserted: sql<boolean>`(xmax = 0)` });
   if (!row) throw new Error("upsert returned no row");
   return { id: row.id as LinkId, outcome: row.inserted ? "created" : "updated" };
+}
+
+export async function setRead(id: LinkId, read: boolean): Promise<boolean> {
+  const rows = await db
+    .update(links)
+    .set({ readAt: sql`case when ${read} then coalesce(${links.readAt}, now()) else null end` })
+    .where(eq(links.id, id))
+    .returning({ id: links.id });
+  return rows.length > 0;
 }

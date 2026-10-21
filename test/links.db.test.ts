@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { db } from "../db/client";
-import { listLinks, upsertLink } from "../db/links";
+import { listLinks, setRead, upsertLink } from "../db/links";
 import { links } from "../db/schema";
-import { parseLinkInput, type LinkInput } from "../lib/link";
+import { parseLinkInput, type LinkId, type LinkInput } from "../lib/link";
 import "./db";
 
 const at = (minutes: number) => new Date(Date.UTC(2025, 0, 1, 0, minutes));
@@ -97,5 +97,54 @@ describe("upsertLink", () => {
 
     const [row] = await db.select().from(links);
     expect(row.url).toBe(url);
+  });
+});
+
+describe("setRead", () => {
+  async function seed(): Promise<LinkId> {
+    const [row] = await db
+      .insert(links)
+      .values({ url: "https://example.com/a", title: "First", tags: ["news", "rust"], createdAt: at(1) })
+      .returning({ id: links.id });
+    return row.id as LinkId;
+  }
+
+  const readAt = async (id: LinkId) =>
+    (await db.select({ readAt: links.readAt }).from(links).where(eq(links.id, id)))[0].readAt;
+
+  it("keeps the first read_at when a link is marked read twice", async () => {
+    const id = await seed();
+
+    expect(await setRead(id, true)).toBe(true);
+    const first = await readAt(id);
+    expect(first).toBeInstanceOf(Date);
+    expect(await setRead(id, true)).toBe(true);
+
+    expect(await readAt(id)).toEqual(first);
+  });
+
+  it("clears read_at when a link is marked unread", async () => {
+    const id = await seed();
+    await setRead(id, true);
+
+    expect(await setRead(id, false)).toBe(true);
+
+    expect(await readAt(id)).toBeNull();
+  });
+
+  it("returns false for an unknown id", async () => {
+    await seed();
+
+    expect(await setRead("00000000-0000-4000-8000-0000000000ff" as LinkId, true)).toBe(false);
+  });
+
+  it("leaves title, tags, and created_at unchanged", async () => {
+    const id = await seed();
+
+    await setRead(id, true);
+    await setRead(id, false);
+
+    const [row] = await db.select().from(links);
+    expect(row).toMatchObject({ title: "First", tags: ["news", "rust"], createdAt: at(1) });
   });
 });
