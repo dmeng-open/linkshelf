@@ -3,7 +3,7 @@ import { db } from "@/db/client";
 
 export const dynamic = "force-dynamic";
 
-const TIMEOUT_MS = 2000;
+const TIMEOUT_MS = 1500;
 
 export async function GET() {
   let timer: ReturnType<typeof setTimeout> | undefined;
