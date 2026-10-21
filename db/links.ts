@@ -40,3 +40,22 @@ export async function setRead(id: LinkId, read: boolean): Promise<boolean> {
     .returning({ id: links.id });
   return rows.length > 0;
 }
+
+export async function updateLink(id: LinkId, { title, tags }: Pick<LinkInput, "title" | "tags">): Promise<boolean> {
+  const rows = await db
+    .update(links)
+    .set({ title, tags, updatedAt: sql`now()` })
+    .where(eq(links.id, id))
+    .returning({ id: links.id });
+  return rows.length > 0;
+}
+
+export async function deleteLink(id: LinkId): Promise<Link | null> {
+  const [row] = await db.delete(links).where(eq(links.id, id)).returning();
+  return row ?? null;
+}
+
+export async function restoreLink(row: Link): Promise<boolean> {
+  const restored = await db.insert(links).values(row).onConflictDoNothing().returning({ id: links.id });
+  return restored.length > 0;
+}
