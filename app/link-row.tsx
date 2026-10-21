@@ -1,5 +1,6 @@
 "use client";
 
+import NextLink from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useOptimistic } from "react";
 import type { Link } from "@/db/schema";
@@ -27,7 +28,7 @@ export function LinkRow({ link }: { link: Link }) {
         <ul>
           {link.tags.map((tag) => (
             <li key={tag} data-testid="tag">
-              {tag}
+              <NextLink href={`/?tag=${tag}`}>{tag}</NextLink>
             </li>
           ))}
         </ul>
