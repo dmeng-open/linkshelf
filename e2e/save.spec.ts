@@ -4,7 +4,6 @@ import postgres from "postgres";
 import { expect, test, type Page } from "@playwright/test";
 import { links } from "../db/schema";
 
-// home.spec.ts closes the shared db/client connection in its afterAll and the worker keeps its modules, so this file opens its own.
 const client = postgres(process.env.DATABASE_URL!);
 const db = drizzle(client);
 
