@@ -1,12 +1,15 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { db } from "../db/client";
-import { listLinks, setRead, upsertLink } from "../db/links";
+import { listLinks as listPage, setRead, upsertLink } from "../db/links";
 import { links } from "../db/schema";
 import { parseLinkInput, type LinkId, type LinkInput, type Tag } from "../lib/link";
+import type { ListQuery } from "../lib/list-query";
 import "./db";
 
 const at = (minutes: number) => new Date(Date.UTC(2025, 0, 1, 0, minutes));
+
+const listLinks = async ({ tag }: { tag: Tag | null }) => (await listPage({ tag, page: 1 })).links;
 
 describe("listLinks", () => {
   it("returns an empty list for an empty table", async () => {
@@ -165,5 +168,46 @@ describe("setRead", () => {
 
     const [row] = await db.select().from(links);
     expect(row).toMatchObject({ title: "First", tags: ["news", "rust"], createdAt: at(1) });
+  });
+});
+
+describe("listLinks paging", () => {
+  async function seed45(taggedFrom = 46) {
+    await db.insert(links).values(
+      Array.from({ length: 45 }, (_, i) => ({
+        url: `https://example.com/${i + 1}`,
+        title: `Link ${i + 1}`,
+        tags: i + 1 >= taggedFrom ? ["rust"] : [],
+        createdAt: at(i + 1),
+      })),
+    );
+  }
+  const page = (n: number, tag: Tag | null = null): ListQuery => ({ tag, page: n });
+
+  it("returns 20, 20, and 5 rows on pages 1, 2, and 3", async () => {
+    await seed45();
+
+    const sizes = await Promise.all([1, 2, 3].map(async (n) => (await listPage(page(n))).links.length));
+
+    expect(sizes).toEqual([20, 20, 5]);
+  });
+
+  it("splits all 45 rows across three pages with no id repeated", async () => {
+    await seed45();
+
+    const ids = (await Promise.all([1, 2, 3].map((n) => listPage(page(n))))).flatMap((p) => p.links.map((l) => l.id));
+    const all = (await db.select({ id: links.id }).from(links)).map((row) => row.id);
+
+    expect(new Set(ids).size).toBe(45);
+    expect(new Set(ids)).toEqual(new Set(all));
+  });
+
+  it("counts 45 unfiltered and only tagged rows under a tag", async () => {
+    await seed45(21);
+
+    expect((await listPage(page(1))).total).toBe(45);
+    const tagged = await listPage(page(2, "rust" as Tag));
+    expect(tagged.total).toBe(25);
+    expect(tagged.links.map((row) => row.title)).toEqual(["Link 25", "Link 24", "Link 23", "Link 22", "Link 21"]);
   });
 });
