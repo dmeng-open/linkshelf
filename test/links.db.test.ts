@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { eq, sql } from "drizzle-orm";
+import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../db/client";
-import { listLinks as listPage, setRead, upsertLink } from "../db/links";
+import { countUnread, deleteLink, listLinks as listPage, restoreLink, setRead, updateLink, upsertLink } from "../db/links";
 import { links } from "../db/schema";
 import { parseLinkInput, type LinkId, type LinkInput, type Tag } from "../lib/link";
 import type { ListQuery } from "../lib/list-query";
@@ -9,7 +9,7 @@ import "./db";
 
 const at = (minutes: number) => new Date(Date.UTC(2025, 0, 1, 0, minutes));
 
-const listLinks = async ({ tag }: { tag: Tag | null }) => (await listPage({ tag, page: 1 })).links;
+const listLinks = async ({ tag }: { tag: Tag | null }) => (await listPage({ tag, page: 1, state: "all" })).links;
 
 describe("listLinks", () => {
   it("returns an empty list for an empty table", async () => {
@@ -182,7 +182,7 @@ describe("listLinks paging", () => {
       })),
     );
   }
-  const page = (n: number, tag: Tag | null = null): ListQuery => ({ tag, page: n });
+  const page = (n: number, tag: Tag | null = null, state: ListQuery["state"] = "all"): ListQuery => ({ tag, page: n, state });
 
   it("returns 20, 20, and 5 rows on pages 1, 2, and 3", async () => {
     await seed45();
@@ -209,5 +209,101 @@ describe("listLinks paging", () => {
     const tagged = await listPage(page(2, "rust" as Tag));
     expect(tagged.total).toBe(25);
     expect(tagged.links.map((row) => row.title)).toEqual(["Link 25", "Link 24", "Link 23", "Link 22", "Link 21"]);
+  });
+});
+
+describe("updateLink, deleteLink, and restoreLink", () => {
+  async function seedRead(): Promise<LinkId> {
+    const [row] = await db
+      .insert(links)
+      .values({
+        url: "https://example.com/a",
+        title: "First",
+        tags: ["news"],
+        readAt: at(5),
+        createdAt: at(1),
+        updatedAt: at(1),
+      })
+      .returning({ id: links.id });
+    return row.id as LinkId;
+  }
+
+  it("updateLink changes title and tags and keeps url, read_at, and created_at", async () => {
+    const id = await seedRead();
+
+    expect(await updateLink(id, { title: "Edited", tags: ["a", "b"] as Tag[] })).toBe(true);
+
+    const [row] = await db.select().from(links);
+    expect(row).toMatchObject({
+      url: "https://example.com/a",
+      title: "Edited",
+      tags: ["a", "b"],
+      readAt: at(5),
+      createdAt: at(1),
+    });
+  });
+
+  it("updateLink returns false for an unknown id", async () => {
+    await seedRead();
+
+    expect(await updateLink("00000000-0000-4000-8000-0000000000ff" as LinkId, { title: "X", tags: [] })).toBe(false);
+  });
+
+  it("deleteLink then restoreLink gives back an identical row, to the microsecond", async () => {
+    const id = await seedRead();
+    await db.update(links).set({ readAt: sql`now()`, createdAt: sql`now() - interval '1.234567 seconds'` });
+    const exact = () => db.execute(sql`select id, url, title, tags, read_at::text, created_at::text, updated_at::text from links`);
+    const before = await exact();
+
+    const deleted = await deleteLink(id);
+    expect(await db.select().from(links)).toEqual([]);
+    expect(await restoreLink(deleted!)).toBe(true);
+
+    expect(await exact()).toEqual(before);
+  });
+
+  it("restoreLink returns false when the url was saved again in between", async () => {
+    const id = await seedRead();
+    const deleted = await deleteLink(id);
+    await db.insert(links).values({ url: "https://example.com/a", title: "Saved again" });
+
+    expect(await restoreLink(deleted!)).toBe(false);
+    expect((await db.select().from(links)).map((row) => row.title)).toEqual(["Saved again"]);
+  });
+
+  it("deleteLink returns null for an unknown id", async () => {
+    expect(await deleteLink("00000000-0000-4000-8000-0000000000ff" as LinkId)).toBeNull();
+  });
+});
+
+describe("unread state", () => {
+  beforeEach(async () => {
+    await db.insert(links).values(
+      Array.from({ length: 6 }, (_, i) => ({
+        url: `https://example.com/${i + 1}`,
+        title: `Link ${i + 1}`,
+        tags: i % 2 === 0 ? ["rust"] : [],
+        readAt: i < 2 ? at(30) : null,
+        createdAt: at(i + 1),
+      })),
+    );
+  });
+
+  it("returns only unread rows, newest first", async () => {
+    const { links: rows } = await listPage({ tag: null, page: 1, state: "unread" });
+
+    expect(rows.map((row) => row.title)).toEqual(["Link 6", "Link 5", "Link 4", "Link 3"]);
+  });
+
+  it("counts only unread rows in the total", async () => {
+    expect((await listPage({ tag: null, page: 1, state: "unread" })).total).toBe(4);
+    expect((await listPage({ tag: null, page: 1, state: "all" })).total).toBe(6);
+  });
+
+  it("countUnread matches the unread total with and without a tag", async () => {
+    expect(await countUnread({ tag: null })).toBe(4);
+    const rust = await listPage({ tag: "rust" as Tag, page: 1, state: "unread" });
+    expect(await countUnread({ tag: "rust" as Tag })).toBe(rust.total);
+    expect(rust.total).toBe(2);
   });
 });

@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { eq, inArray, isNull, like } from "drizzle-orm";
 import { db, sql } from "../db/client";
 import { recentFailures } from "../db/login-failures";
-import { setRead, upsertLink } from "../db/links";
+import { deleteLink, restoreLink, setRead, updateLink, upsertLink } from "../db/links";
 import { links, loginFailures } from "../db/schema";
 import { normalizeUrl, type LinkId, type LinkInput } from "../lib/link";
 
@@ -18,7 +18,7 @@ const { values } = parseArgs({
 
 const n = values.n && /^\d+$/.test(values.n) ? Number(values.n) : NaN;
 const op = values.op;
-const OPS = ["upsert", "set-read", "login-check"] as const;
+const OPS = ["upsert", "set-read", "login-check", "update", "delete-restore"] as const;
 if (!OPS.includes(op as (typeof OPS)[number]) || !Number.isInteger(n) || n < 1) {
   throw new Error(`usage: perf-db.ts --op ${OPS.join("|")} --n <count>`);
 }
@@ -140,7 +140,50 @@ async function timeLoginCheck() {
   );
 }
 
-const main = { upsert: timeUpsert, "set-read": timeSetRead, "login-check": timeLoginCheck }[op as (typeof OPS)[number]];
+async function timeOnSeeded(name: string, run: (id: LinkId) => Promise<void>) {
+  const total = WARMUP + n;
+  const rows = await db.select().from(links).where(like(links.url, "https://example.com/links/%")).limit(total);
+  if (rows.length < total) throw new Error(`seed the table first: need ${total} seeded links, found ${rows.length}`);
+
+  const timings: number[] = [];
+  try {
+    for (let i = 0; i < total; i++) {
+      const start = performance.now();
+      await run(rows[i].id as LinkId);
+      const elapsed = performance.now() - start;
+      if (i >= WARMUP) timings.push(elapsed);
+    }
+  } finally {
+    for (const row of rows) {
+      await db.insert(links).values(row).onConflictDoUpdate({ target: links.id, set: { title: row.title, tags: row.tags, updatedAt: row.updatedAt } });
+    }
+    await sql.end();
+  }
+
+  const sorted = timings.sort((a, b) => a - b);
+  console.log(JSON.stringify({ op: name, n, p50: round(percentile(sorted, 0.5)), p95: round(percentile(sorted, 0.95)) }));
+}
+
+async function timeUpdate() {
+  await timeOnSeeded("update", async (id) => {
+    if (!(await updateLink(id, { title: "Perf edit", tags: [] }))) throw new Error(`no row ${id}`);
+  });
+}
+
+async function timeDeleteRestore() {
+  await timeOnSeeded("delete-restore", async (id) => {
+    const row = await deleteLink(id);
+    if (!row || !(await restoreLink(row))) throw new Error(`could not delete and restore ${id}`);
+  });
+}
+
+const main = {
+  upsert: timeUpsert,
+  "set-read": timeSetRead,
+  "login-check": timeLoginCheck,
+  update: timeUpdate,
+  "delete-restore": timeDeleteRestore,
+}[op as (typeof OPS)[number]];
 
 main().catch((err) => {
   console.error(err);
