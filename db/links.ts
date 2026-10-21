@@ -1,11 +1,13 @@
-import { arrayContains, desc, eq, sql } from "drizzle-orm";
-import type { LinkId, LinkInput } from "../lib/link";
+import { and, arrayContains, desc, eq, isNull, sql } from "drizzle-orm";
+import type { LinkId, LinkInput, Tag } from "../lib/link";
 import { PAGE_SIZE, type ListQuery } from "../lib/list-query";
 import { db } from "./client";
 import { links, type Link } from "./schema";
 
-export async function listLinks({ tag, page }: ListQuery): Promise<{ links: Link[]; total: number }> {
-  const filter = tag === null ? undefined : arrayContains(links.tags, [tag]);
+const tagFilter = (tag: Tag | null) => (tag === null ? undefined : arrayContains(links.tags, [tag]));
+
+export async function listLinks({ tag, page, state }: ListQuery): Promise<{ links: Link[]; total: number }> {
+  const filter = and(tagFilter(tag), state === "unread" ? isNull(links.readAt) : undefined);
   const [rows, total] = await Promise.all([
     db
       .select()
@@ -17,6 +19,10 @@ export async function listLinks({ tag, page }: ListQuery): Promise<{ links: Link
     db.$count(links, filter),
   ]);
   return { links: rows, total };
+}
+
+export function countUnread({ tag }: { tag: Tag | null }): Promise<number> {
+  return db.$count(links, and(tagFilter(tag), isNull(links.readAt)));
 }
 
 export async function upsertLink(input: LinkInput): Promise<{ id: LinkId; outcome: "created" | "updated" }> {

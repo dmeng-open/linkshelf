@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../db/client";
-import { deleteLink, listLinks as listPage, restoreLink, setRead, updateLink, upsertLink } from "../db/links";
+import { countUnread, deleteLink, listLinks as listPage, restoreLink, setRead, updateLink, upsertLink } from "../db/links";
 import { links } from "../db/schema";
 import { parseLinkInput, type LinkId, type LinkInput, type Tag } from "../lib/link";
 import type { ListQuery } from "../lib/list-query";
@@ -9,7 +9,7 @@ import "./db";
 
 const at = (minutes: number) => new Date(Date.UTC(2025, 0, 1, 0, minutes));
 
-const listLinks = async ({ tag }: { tag: Tag | null }) => (await listPage({ tag, page: 1 })).links;
+const listLinks = async ({ tag }: { tag: Tag | null }) => (await listPage({ tag, page: 1, state: "all" })).links;
 
 describe("listLinks", () => {
   it("returns an empty list for an empty table", async () => {
@@ -182,7 +182,7 @@ describe("listLinks paging", () => {
       })),
     );
   }
-  const page = (n: number, tag: Tag | null = null): ListQuery => ({ tag, page: n });
+  const page = (n: number, tag: Tag | null = null, state: ListQuery["state"] = "all"): ListQuery => ({ tag, page: n, state });
 
   it("returns 20, 20, and 5 rows on pages 1, 2, and 3", async () => {
     await seed45();
@@ -271,5 +271,37 @@ describe("updateLink, deleteLink, and restoreLink", () => {
 
   it("deleteLink returns null for an unknown id", async () => {
     expect(await deleteLink("00000000-0000-4000-8000-0000000000ff" as LinkId)).toBeNull();
+  });
+});
+
+describe("unread state", () => {
+  beforeEach(async () => {
+    await db.insert(links).values(
+      Array.from({ length: 6 }, (_, i) => ({
+        url: `https://example.com/${i + 1}`,
+        title: `Link ${i + 1}`,
+        tags: i % 2 === 0 ? ["rust"] : [],
+        readAt: i < 2 ? at(30) : null,
+        createdAt: at(i + 1),
+      })),
+    );
+  });
+
+  it("returns only unread rows, newest first", async () => {
+    const { links: rows } = await listPage({ tag: null, page: 1, state: "unread" });
+
+    expect(rows.map((row) => row.title)).toEqual(["Link 6", "Link 5", "Link 4", "Link 3"]);
+  });
+
+  it("counts only unread rows in the total", async () => {
+    expect((await listPage({ tag: null, page: 1, state: "unread" })).total).toBe(4);
+    expect((await listPage({ tag: null, page: 1, state: "all" })).total).toBe(6);
+  });
+
+  it("countUnread matches the unread total with and without a tag", async () => {
+    expect(await countUnread({ tag: null })).toBe(4);
+    const rust = await listPage({ tag: "rust" as Tag, page: 1, state: "unread" });
+    expect(await countUnread({ tag: "rust" as Tag })).toBe(rust.total);
+    expect(rust.total).toBe(2);
   });
 });

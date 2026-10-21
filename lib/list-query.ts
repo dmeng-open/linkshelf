@@ -3,7 +3,8 @@ import { parseTags, type Tag } from "./link";
 export const PAGE_SIZE = 20;
 
 export type SearchParams = Record<string, string | string[] | undefined>;
-export type ListQuery = { tag: Tag | null; page: number };
+export type ListState = "all" | "unread";
+export type ListQuery = { tag: Tag | null; page: number; state: ListState };
 
 const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
 
@@ -20,12 +21,18 @@ function parsePage(raw: string | undefined): number {
 }
 
 export function parseListQuery(searchParams: SearchParams): ListQuery {
-  return { tag: parseTag(first(searchParams.tag)), page: parsePage(first(searchParams.page)) };
+  return {
+    tag: parseTag(first(searchParams.tag)),
+    page: parsePage(first(searchParams.page)),
+    state: first(searchParams.state) === "unread" ? "unread" : "all",
+  };
 }
 
-export function listHref({ tag, page }: ListQuery): string {
+export function listHref({ tag, page, state }: { tag: Tag | null; page: number | null; state: ListState }): string {
   const params = new URLSearchParams();
   if (tag !== null) params.set("tag", tag);
-  params.set("page", String(page));
-  return `/?${params}`;
+  if (state === "unread") params.set("state", state);
+  if (page !== null) params.set("page", String(page));
+  const query = params.toString();
+  return query ? `/?${query}` : "/";
 }

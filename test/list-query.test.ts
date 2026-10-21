@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseListQuery, type SearchParams } from "../lib/list-query";
+import { listHref, parseListQuery, type SearchParams } from "../lib/list-query";
+import type { Tag } from "../lib/link";
 
 describe("parseListQuery", () => {
   it.each<[string, SearchParams, string | null]>([
@@ -25,5 +26,27 @@ describe("parseListQuery page", () => {
     ["?page=99999999999999999999", { page: "99999999999999999999" }, 1],
   ])("%s gives %s", (_, searchParams, page) => {
     expect(parseListQuery(searchParams).page).toBe(page);
+  });
+});
+
+describe("parseListQuery state", () => {
+  it.each<[string, SearchParams, string]>([
+    ["?state=unread", { state: "unread" }, "unread"],
+    ["?state=", { state: "" }, "all"],
+    ["?state=READ", { state: "READ" }, "all"],
+    ["no state", {}, "all"],
+  ])("%s gives %s", (_, searchParams, state) => {
+    expect(parseListQuery(searchParams).state).toBe(state);
+  });
+});
+
+describe("listHref", () => {
+  it.each<[Parameters<typeof listHref>[0], string]>([
+    [{ tag: "rust" as Tag, state: "unread", page: 2 }, "/?tag=rust&state=unread&page=2"],
+    [{ tag: null, state: "unread", page: null }, "/?state=unread"],
+    [{ tag: "rust" as Tag, state: "all", page: null }, "/?tag=rust"],
+    [{ tag: null, state: "all", page: null }, "/"],
+  ])("builds %j as %s", (query, href) => {
+    expect(listHref(query)).toBe(href);
   });
 });
