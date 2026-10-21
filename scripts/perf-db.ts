@@ -3,7 +3,8 @@ import { parseArgs } from "node:util";
 import { eq, inArray, isNull, like } from "drizzle-orm";
 import { db, sql } from "../db/client";
 import { recentFailures } from "../db/login-failures";
-import { deleteLink, restoreLink, setRead, updateLink, upsertLink } from "../db/links";
+import { deleteLink, importLinks, restoreLink, setRead, updateLink, upsertLink } from "../db/links";
+import { parseBookmarksHtml, toBookmarksHtml } from "../lib/bookmarks";
 import { links, loginFailures } from "../db/schema";
 import { normalizeUrl, type LinkId, type LinkInput } from "../lib/link";
 
@@ -18,7 +19,7 @@ const { values } = parseArgs({
 
 const n = values.n && /^\d+$/.test(values.n) ? Number(values.n) : NaN;
 const op = values.op;
-const OPS = ["upsert", "set-read", "login-check", "update", "delete-restore"] as const;
+const OPS = ["upsert", "set-read", "login-check", "update", "delete-restore", "import"] as const;
 if (!OPS.includes(op as (typeof OPS)[number]) || !Number.isInteger(n) || n < 1) {
   throw new Error(`usage: perf-db.ts --op ${OPS.join("|")} --n <count>`);
 }
@@ -177,12 +178,31 @@ async function timeDeleteRestore() {
   });
 }
 
+async function timeImport() {
+  const runId = randomUUID();
+  const prefix = `https://example.com/perf-import/${runId}/`;
+  const html = toBookmarksHtml(
+    Array.from({ length: n }, (_, k) => ({ url: `${prefix}${k}`, title: `Imported ${k}`, tags: ["perf"], createdAt: new Date() })),
+  );
+  try {
+    const start = performance.now();
+    const { links: inputs, invalid } = parseBookmarksHtml(html);
+    const { imported, skipped } = await importLinks(inputs);
+    const elapsed = performance.now() - start;
+    console.log(JSON.stringify({ op: "import", n, bytes: Buffer.byteLength(html), imported, skipped, invalid, ms: round(elapsed) }));
+  } finally {
+    await db.delete(links).where(like(links.url, `${prefix}%`));
+    await sql.end();
+  }
+}
+
 const main = {
   upsert: timeUpsert,
   "set-read": timeSetRead,
   "login-check": timeLoginCheck,
   update: timeUpdate,
   "delete-restore": timeDeleteRestore,
+  import: timeImport,
 }[op as (typeof OPS)[number]];
 
 main().catch((err) => {

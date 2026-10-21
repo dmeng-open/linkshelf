@@ -1,4 +1,4 @@
-import { and, type AnyColumn, arrayContains, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, type AnyColumn, arrayContains, asc, desc, eq, getTableColumns, ilike, isNull, or, sql } from "drizzle-orm";
 import type { LinkId, LinkInput, Tag } from "../lib/link";
 import { PAGE_SIZE, type ListQuery } from "../lib/list-query";
 import { db } from "./client";
@@ -99,4 +99,37 @@ export async function restoreLink(row: DeletedLink): Promise<boolean> {
     .onConflictDoNothing()
     .returning({ id: links.id });
   return restored.length > 0;
+}
+
+const IMPORT_BATCH = 500;
+
+export async function importLinks(inputs: LinkInput[]): Promise<{ imported: number; skipped: number }> {
+  let imported = 0;
+  for (let i = 0; i < inputs.length; i += IMPORT_BATCH) {
+    const rows = await db
+      .insert(links)
+      .values(inputs.slice(i, i + IMPORT_BATCH))
+      .onConflictDoNothing({ target: links.url })
+      .returning({ id: links.id });
+    imported += rows.length;
+  }
+  return { imported, skipped: inputs.length - imported };
+}
+
+const EXPORT_BATCH = 1000;
+
+export async function* allLinksOldestFirst(): AsyncGenerator<Link[]> {
+  let after: { createdAt: string; id: string } | null = null;
+  for (;;) {
+    const batch: (Link & { cursor: string })[] = await db
+      .select({ ...getTableColumns(links), cursor: exactTime<string>(links.createdAt) })
+      .from(links)
+      .where(after === null ? undefined : sql`(${links.createdAt}, ${links.id}) > (${after.createdAt}::timestamptz, ${after.id}::uuid)`)
+      .orderBy(asc(links.createdAt), asc(links.id))
+      .limit(EXPORT_BATCH);
+    if (batch.length === 0) return;
+    yield batch;
+    const last: Link & { cursor: string } = batch[batch.length - 1];
+    after = { createdAt: last.cursor, id: last.id };
+  }
 }
