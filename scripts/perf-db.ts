@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import { eq, inArray, isNull, like } from "drizzle-orm";
 import { db, sql } from "../db/client";
+import { recentFailures } from "../db/login-failures";
 import { setRead, upsertLink } from "../db/links";
-import { links } from "../db/schema";
+import { links, loginFailures } from "../db/schema";
 import { normalizeUrl, type LinkId, type LinkInput } from "../lib/link";
 
 const WARMUP = 5;
@@ -17,8 +18,9 @@ const { values } = parseArgs({
 
 const n = values.n && /^\d+$/.test(values.n) ? Number(values.n) : NaN;
 const op = values.op;
-if ((op !== "upsert" && op !== "set-read") || !Number.isInteger(n) || n < 1) {
-  throw new Error("usage: perf-db.ts --op upsert|set-read --n <count>");
+const OPS = ["upsert", "set-read", "login-check"] as const;
+if (!OPS.includes(op as (typeof OPS)[number]) || !Number.isInteger(n) || n < 1) {
+  throw new Error(`usage: perf-db.ts --op ${OPS.join("|")} --n <count>`);
 }
 
 function link(url: string, title: string): LinkInput {
@@ -108,7 +110,37 @@ async function timeSetRead() {
   );
 }
 
-const main = op === "upsert" ? timeUpsert : timeSetRead;
+async function timeLoginCheck() {
+  const runId = randomUUID();
+  const clients = Array.from({ length: 1000 }, (_, i) => `perf-${runId}-${i}`);
+  const since = new Date(Date.now() - 15 * 60 * 1000);
+  const timings: number[] = [];
+  try {
+    for (let i = 0; i < 10; i++) await db.insert(loginFailures).values(clients.map((client) => ({ client })));
+    for (let i = 0; i < WARMUP + n; i++) {
+      const start = performance.now();
+      await recentFailures(clients[i % clients.length], since);
+      const elapsed = performance.now() - start;
+      if (i >= WARMUP) timings.push(elapsed);
+    }
+  } finally {
+    await db.delete(loginFailures).where(like(loginFailures.client, `perf-${runId}-%`));
+    await sql.end();
+  }
+
+  const sorted = timings.sort((a, b) => a - b);
+  console.log(
+    JSON.stringify({
+      op: "login-check",
+      n,
+      failureRows: clients.length * 10,
+      p50: round(percentile(sorted, 0.5)),
+      p95: round(percentile(sorted, 0.95)),
+    }),
+  );
+}
+
+const main = { upsert: timeUpsert, "set-read": timeSetRead, "login-check": timeLoginCheck }[op as (typeof OPS)[number]];
 
 main().catch((err) => {
   console.error(err);

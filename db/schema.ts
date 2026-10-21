@@ -1,4 +1,5 @@
-import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { bigserial, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 export const links = pgTable(
   "links",
@@ -14,7 +15,22 @@ export const links = pgTable(
   (t) => [
     index("links_tags_gin_idx").using("gin", t.tags),
     index("links_created_at_id_idx").on(t.createdAt.desc().nullsFirst(), t.id.desc().nullsFirst()),
+    index("links_unread_created_at_id_idx")
+      .on(t.createdAt.desc().nullsFirst(), t.id.desc().nullsFirst())
+      .where(sql`${t.readAt} is null`),
+    index("links_title_trgm_idx").using("gin", t.title.op("gin_trgm_ops")),
+    index("links_url_trgm_idx").using("gin", t.url.op("gin_trgm_ops")),
   ],
 );
 
 export type Link = typeof links.$inferSelect;
+
+export const loginFailures = pgTable(
+  "login_failures",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    client: text("client").notNull(),
+    failedAt: timestamp("failed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("login_failures_client_failed_at_idx").on(t.client, t.failedAt.desc())],
+);
