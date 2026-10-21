@@ -9,7 +9,7 @@ import "./db";
 
 const at = (minutes: number) => new Date(Date.UTC(2025, 0, 1, 0, minutes));
 
-const listLinks = async ({ tag }: { tag: Tag | null }) => (await listPage({ tag, page: 1, state: "all" })).links;
+const listLinks = async ({ tag }: { tag: Tag | null }) => (await listPage({ tag, page: 1, state: "all", q: null })).links;
 
 describe("listLinks", () => {
   it("returns an empty list for an empty table", async () => {
@@ -182,7 +182,7 @@ describe("listLinks paging", () => {
       })),
     );
   }
-  const page = (n: number, tag: Tag | null = null, state: ListQuery["state"] = "all"): ListQuery => ({ tag, page: n, state });
+  const page = (n: number, tag: Tag | null = null, state: ListQuery["state"] = "all"): ListQuery => ({ tag, page: n, state, q: null });
 
   it("returns 20, 20, and 5 rows on pages 1, 2, and 3", async () => {
     await seed45();
@@ -290,20 +290,53 @@ describe("unread state", () => {
   });
 
   it("returns only unread rows, newest first", async () => {
-    const { links: rows } = await listPage({ tag: null, page: 1, state: "unread" });
+    const { links: rows } = await listPage({ tag: null, page: 1, state: "unread", q: null });
 
     expect(rows.map((row) => row.title)).toEqual(["Link 6", "Link 5", "Link 4", "Link 3"]);
   });
 
   it("counts only unread rows in the total", async () => {
-    expect((await listPage({ tag: null, page: 1, state: "unread" })).total).toBe(4);
-    expect((await listPage({ tag: null, page: 1, state: "all" })).total).toBe(6);
+    expect((await listPage({ tag: null, page: 1, state: "unread", q: null })).total).toBe(4);
+    expect((await listPage({ tag: null, page: 1, state: "all", q: null })).total).toBe(6);
   });
 
   it("countUnread matches the unread total with and without a tag", async () => {
     expect(await countUnread({ tag: null })).toBe(4);
-    const rust = await listPage({ tag: "rust" as Tag, page: 1, state: "unread" });
+    const rust = await listPage({ tag: "rust" as Tag, page: 1, state: "unread", q: null });
     expect(await countUnread({ tag: "rust" as Tag })).toBe(rust.total);
     expect(rust.total).toBe(2);
+  });
+});
+
+describe("search", () => {
+  beforeEach(async () => {
+    await db.insert(links).values([
+      { url: "https://example.com/rust-book", title: "The Rust Book", tags: ["rust"], createdAt: at(1) },
+      { url: "https://github.com/vercel/next.js", title: "Next", tags: ["web"], createdAt: at(2) },
+      { url: "https://example.com/100%_off", title: "Sale", readAt: at(9), createdAt: at(3) },
+      { url: "https://example.com/plain", title: "Plain 100 off", tags: ["rust"], createdAt: at(4) },
+    ]);
+  });
+
+  const search = async (q: string, extra: Partial<ListQuery> = {}) =>
+    (await listPage({ tag: null, page: 1, state: "all", q, ...extra })).links.map((row) => row.title);
+
+  it("matches the title in any case", async () => {
+    expect(await search("rUST bOOK")).toEqual(["The Rust Book"]);
+  });
+
+  it("matches the url", async () => {
+    expect(await search("github.com/vercel")).toEqual(["Next"]);
+  });
+
+  it("matches % and _ only as themselves", async () => {
+    expect(await search("100%")).toEqual(["Sale"]);
+    expect(await search("_off")).toEqual(["Sale"]);
+    expect(await search("%")).toEqual(["Sale"]);
+  });
+
+  it("combines with tag and state", async () => {
+    expect(await search("e", { tag: "rust" as Tag })).toEqual(["Plain 100 off", "The Rust Book"]);
+    expect(await search("example", { state: "unread" })).toEqual(["Plain 100 off", "The Rust Book"]);
   });
 });

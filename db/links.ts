@@ -1,4 +1,4 @@
-import { and, type AnyColumn, arrayContains, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, type AnyColumn, arrayContains, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import type { LinkId, LinkInput, Tag } from "../lib/link";
 import { PAGE_SIZE, type ListQuery } from "../lib/list-query";
 import { db } from "./client";
@@ -6,8 +6,14 @@ import { links, type Link } from "./schema";
 
 const tagFilter = (tag: Tag | null) => (tag === null ? undefined : arrayContains(links.tags, [tag]));
 
-export async function listLinks({ tag, page, state }: ListQuery): Promise<{ links: Link[]; total: number }> {
-  const filter = and(tagFilter(tag), state === "unread" ? isNull(links.readAt) : undefined);
+function searchFilter(q: string | null) {
+  if (q === null) return undefined;
+  const pattern = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  return or(ilike(links.title, pattern), ilike(links.url, pattern));
+}
+
+export async function listLinks({ tag, page, state, q }: ListQuery): Promise<{ links: Link[]; total: number }> {
+  const filter = and(tagFilter(tag), state === "unread" ? isNull(links.readAt) : undefined, searchFilter(q));
   const [rows, total] = await Promise.all([
     db
       .select()

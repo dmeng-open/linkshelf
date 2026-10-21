@@ -2,7 +2,7 @@
 
 import NextLink from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useCallback, useOptimistic, useState, useTransition } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 import type { Link } from "@/db/schema";
 import type { Tag } from "@/lib/link";
 import { listHref } from "@/lib/list-query";
@@ -16,12 +16,13 @@ export function LinkRow({ link }: { link: Link }) {
   const searchParams = useSearchParams();
   const search = searchParams.toString();
   const state = searchParams.get("state") === "unread" ? "unread" : "all";
+  const q = searchParams.get("q");
   const pending = shownRead !== read;
   const path = search ? `${pathname}?${search}` : pathname;
   const [mode, setMode] = useState<"view" | "edit" | "deleted" | "already-gone" | "not-restored">("view");
   const [busy, startTransition] = useTransition();
   const [undoToken, setUndoToken] = useState<string | null>(null);
-  const closeEditor = useCallback(() => setMode("view"), []);
+  const closeEditor = () => setMode("view");
 
   async function toggle(formData: FormData) {
     setShownRead(!shownRead);
@@ -79,7 +80,7 @@ export function LinkRow({ link }: { link: Link }) {
         <ul>
           {link.tags.map((tag) => (
             <li key={tag} data-testid="tag">
-              <NextLink href={listHref({ tag: tag as Tag, state, page: null })}>{tag}</NextLink>
+              <NextLink href={listHref({ tag: tag as Tag, state, q, page: null })}>{tag}</NextLink>
             </li>
           ))}
         </ul>
