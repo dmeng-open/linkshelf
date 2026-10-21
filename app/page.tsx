@@ -1,4 +1,5 @@
 import { listLinks } from "@/db/links";
+import { LinkRow } from "./link-row";
 import { SaveForm } from "./save-form";
 
 export const dynamic = "force-dynamic";
@@ -15,20 +16,7 @@ export default async function Home() {
       ) : (
         <ul>
           {links.map((link) => (
-            <li key={link.id} data-testid="link-row">
-              <a href={link.url}>{link.title}</a> <span>{new URL(link.url).host}</span>
-              {link.tags.length > 0 && (
-                <ul>
-                  {link.tags.map((tag) => (
-                    <li key={tag} data-testid="tag">
-                      {tag}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {" "}
-              <time dateTime={link.createdAt.toISOString()}>{link.createdAt.toISOString().slice(0, 10)}</time>
-            </li>
+            <LinkRow key={link.id} link={link} />
           ))}
         </ul>
       )}
