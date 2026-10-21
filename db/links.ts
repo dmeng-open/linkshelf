@@ -1,10 +1,15 @@
-import { desc, eq, sql } from "drizzle-orm";
-import type { LinkId, LinkInput } from "../lib/link";
+import { arrayContains, desc, eq, sql } from "drizzle-orm";
+import type { LinkId, LinkInput, Tag } from "../lib/link";
 import { db } from "./client";
 import { links, type Link } from "./schema";
 
-export function listLinks(): Promise<Link[]> {
-  return db.select().from(links).orderBy(desc(links.createdAt), desc(links.id)).limit(20);
+export function listLinks({ tag }: { tag: Tag | null }): Promise<Link[]> {
+  return db
+    .select()
+    .from(links)
+    .where(tag === null ? undefined : arrayContains(links.tags, [tag]))
+    .orderBy(desc(links.createdAt), desc(links.id))
+    .limit(20);
 }
 
 export async function upsertLink(input: LinkInput): Promise<{ id: LinkId; outcome: "created" | "updated" }> {

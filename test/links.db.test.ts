@@ -3,14 +3,14 @@ import { describe, expect, it } from "vitest";
 import { db } from "../db/client";
 import { listLinks, setRead, upsertLink } from "../db/links";
 import { links } from "../db/schema";
-import { parseLinkInput, type LinkId, type LinkInput } from "../lib/link";
+import { parseLinkInput, type LinkId, type LinkInput, type Tag } from "../lib/link";
 import "./db";
 
 const at = (minutes: number) => new Date(Date.UTC(2025, 0, 1, 0, minutes));
 
 describe("listLinks", () => {
   it("returns an empty list for an empty table", async () => {
-    expect(await listLinks()).toEqual([]);
+    expect(await listLinks({ tag: null })).toEqual([]);
   });
 
   it("returns the newest 20 of 25 links, newest first", async () => {
@@ -22,7 +22,7 @@ describe("listLinks", () => {
       })),
     );
 
-    const rows = await listLinks();
+    const rows = await listLinks({ tag: null });
 
     expect(rows.map((row) => row.title)).toEqual(
       Array.from({ length: 20 }, (_, i) => `Link ${25 - i}`),
@@ -36,7 +36,26 @@ describe("listLinks", () => {
       { id: "00000000-0000-4000-8000-000000000002", url: "https://example.com/b", title: "B", createdAt: at(1) },
     ]);
 
-    expect((await listLinks()).map((row) => row.title)).toEqual(["C", "B", "A"]);
+    expect((await listLinks({ tag: null })).map((row) => row.title)).toEqual(["C", "B", "A"]);
+  });
+
+  it("returns only rows tagged rust, newest first", async () => {
+    await db.insert(links).values([
+      { url: "https://example.com/1", title: "Old rust", tags: ["rust", "web"], createdAt: at(1) },
+      { url: "https://example.com/2", title: "Plain", tags: ["web"], createdAt: at(2) },
+      { url: "https://example.com/3", title: "New rust", tags: ["rust"], createdAt: at(3) },
+      { url: "https://example.com/4", title: "Untagged", createdAt: at(4) },
+    ]);
+
+    const rows = await listLinks({ tag: "rust" as Tag });
+
+    expect(rows.map((row) => row.title)).toEqual(["New rust", "Old rust"]);
+  });
+
+  it("returns no rows for an unknown tag", async () => {
+    await db.insert(links).values({ url: "https://example.com/1", title: "Rust", tags: ["rust"] });
+
+    expect(await listLinks({ tag: "nothing-here" as Tag })).toEqual([]);
   });
 });
 
